@@ -21,6 +21,11 @@ library(tidyverse)
 library(viridis)
 library(DT)
 library(plotly)
+library(WGCNA)
+library(heatmaply)
+library(textshape)
+library(gplots)
+library(MASS)
 
 
 ```
@@ -569,89 +574,55 @@ heatmap_save <- heatmap.2(zscores,
 
 
 ```
-### Weighted gene correlation network analysis (WGCNA) 
 
-
-Using a Weighted gene correlation network analysis to compare gene clusters from each time point to the clinical endpoints.
-This means that all genes are clustered together at each timepoint, then a PCA is calculated for each cluster. PC1 from each cluster for each sample is then calculated. This is called the module eigengene. The model eigengene is then compared to the clinical endpoints. 
 
 ####  Question 2: Correlation of engraftment data 
 
 Is there a miRNA profile that is associated with engraftment?
-Using Rank correlation (spearman's) The following results identify gene clusters associated with engraftment day
+Using Rank correlation (spearman's) The following results identify miRNA targets associated with engraftment day
 
-
-
-```{r timepointA}
-
-set.seed(1234)
-
-##Correlation plot
-# data has sd = 0 problems for the miRNAs thresholded to 22, eliminating these counts from the matrix. 
-test <- skimr::skim(log2_normA)
-
-# Filtering out miRNAs that are all the same number (threshold log2(22))
-filter_vec <- test %>% 
-filter(numeric.sd != 0) %>% pull(skim_variable)
-
-log2_normA_drop_sd0 <- log2_normA %>% 
-  select(all_of(filter_vec)) %>% 
-  as_tibble()
-
-# generate correlation matrix of data 
-data_cor <- cor(log2_normA_drop_sd0, use = 'pairwise.complete.obs')
-
-
-# if names were numeric
-# data_cor[ order(as.numeric(row.names(data_cor))), ]
-hc <- data_cor %>%
-  # calculate a distance matrix using the euclidean method (standard),
-  dist(method = "euclidean") %>%
-  # compute hierarchical clustering
-  hclust(method = "average")
-
-dend <- hc %>%
-  # turn that object into a dendrogram.
-  as.dendrogram()
-
-
-clustersA <- cutreeDynamic(hc, deepSplit = TRUE)
-n_branch <- length(clustersA %>% unique())
-
-data_clustersA<- data_cor %>% as.data.frame()
-data_clustersA$clusters <- clustersA
-
-```
+##### miRNA targets from TimepointA significantly correlated with Engraftment variables
 ```{r engraftA}
-library(WGCNA)
 
 #### 1. Engraftment
 
-# Define numbers of genes and samples
-nGenesA = ncol(log2_normA_drop_sd0);
-nSamplesA = nrow(log2_normA_drop_sd0);
-# Recalculate MEs with color labels
-MEs0A = moduleEigengenes(log2_normA_drop_sd0, clustersA, impute = FALSE)$eigengenes
-MEsA = orderMEs(MEs0A)
-moduleTraitCor = cor(MEsA, 
-                     engraftment_vars, use = "p", method = "spearman");
-moduleTraitPvalue = corPvalueStudent(moduleTraitCor, nSamplesA)
+# Spearman’s rank correlation coefficient, or Spearman’s correlation coefficient, as the name suggests, is a nonparametric approach to measuring correlation using rank values.
+moduleTraitCor = stats::cor(log2_normA, 
+                            engraftment_vars, 
+                            method = "spearman")# spearman: rank correlation 
 
-# Will display correlations and their p-values
-textMatrix =  paste(signif(moduleTraitCor, 2), "\n(",
-                    signif(moduleTraitPvalue, 1), ")", sep = "");
-dim(textMatrix) = dim(moduleTraitCor)
+## remove all the NAs
+TraitCor_dropNA<- moduleTraitCor[rowSums(is.na(moduleTraitCor)) !=2,]
+TraitCor_dropNA_reorder <- cluster_matrix(TraitCor_dropNA)
+
+# Calculate P-values based on sample size (package: WGCNA)
+TraitPvalue = corPvalueStudent(TraitCor_dropNA_reorder, nSamples)
+
+#### trim the insignificant genes to make the figure more readable 
+pvalue_threshold <- 0.2
+# identify non significant genes according to threshold
+notSignificant <- TraitPvalue %>%
+  as.data.frame() %>% 
+  filter(anc_engraftment_day >= pvalue_threshold & plt_engraftment_day >= pvalue_threshold) %>% 
+  row.names()
+# remove genes from data sets
+TraitCorFig <- TraitCor_dropNA_reorder[!( rownames(TraitCor_dropNA_reorder) %in% notSignificant),]
+TraitPvalueFig <- TraitPvalue[!( rownames(TraitPvalue) %in% notSignificant),]
+
+# TextMatrix will display correlations and their p-values
+textMatrix =  paste(signif(TraitCorFig, 2), "\n(",
+                    signif(TraitPvalueFig, 1), ")", sep = "");
+dim(textMatrix) = dim(TraitCorFig)
+
+
 # Display the correlation values within a heatmap plot
-colnames(engraftment_vars) <- c("eng_day_anc", "eng_day_plt")
-
-labeledHeatmap(Matrix = moduleTraitCor,
+labeledHeatmap(Matrix = TraitCorFig,
                xLabels = names(engraftment_vars),
-               yLabels = names(MEsA),
-               ySymbols = names(MEsA),
+               yLabels = rownames(TraitCorFig),
+               ySymbols = rownames(TraitCorFig),
                colorLabels = FALSE,
-               colors = greenWhiteRed(50),
+               colors = blueWhiteRed(50),
                textMatrix = textMatrix,
-               setStdMargins = FALSE,
                cex.text = 0.5,
                zlim = c(-1,1),
                main = paste("Module-trait relationships"))
@@ -659,78 +630,26 @@ labeledHeatmap(Matrix = moduleTraitCor,
 Timepoint A
 
 
+##### Significant (p < 0.05)
+```{r engraftA_table}
 
-```{r timepointB}
+#### Useless function.. Just go with it. 
+## Logical, identifying significance at valuewritten in function.
+sig_fun <- function(x){
+  x <= (0.05)
+}
 
-set.seed(1234)
-
-# data has sd = 0 problems for the miRNAs thresholded to 22, eliminating these counts from the matrix. 
-test <- skimr::skim(log2_normB)
-
-# Filtering out miRNAs that are all the same number (threshold log2(22))
-filter_vec <- test %>% 
-  filter(numeric.sd != 0) %>% pull(skim_variable)
-
-rows_8 <- rownames(log2_normB)
-
-log2_normB_drop_sd0 <- log2_normB %>% 
-  select(all_of(filter_vec)) %>% 
-  as_tibble()
-
-# generate correlation matrix of data 
-data_cor <- cor(log2_normB_drop_sd0, use = 'pairwise.complete.obs')
-
-# if names were numeric
-# data_cor[ order(as.numeric(row.names(data_cor))), ]
-hc <- data_cor %>%
-  # calculate a distance matrix using the euclidean method (standard),
-  dist(method = "euclidean") %>%
-  # compute hierarchical clustering
-  hclust(method = "average")
-
-dend <- hc %>%
-  # turn that object into a dendrogram.
-  as.dendrogram()
-
-clustersB <- cutreeDynamic(hc, deepSplit = TRUE)
-n_branch <- length(clustersB %>% unique())
-data_clustersB<- data_cor %>% as.data.frame()
-data_clustersB$clusters <- clustersB
+# table of miRNAs that are significant
+TraitPvalueFig %>%
+  as.data.frame() %>% 
+  mutate_all(sig_fun) %>% 
+  filter(anc_engraftment_day ==TRUE | plt_engraftment_day == TRUE) %>% 
+  kable()
 
 ```
-```{r engraftB}
-### 1. Engraftment Variables 
-engraftment_varsB <- engraftment_vars[rows_8,]
 
-# Define numbers of genes and samples
-nGenesB = ncol(log2_normB_drop_sd0);
-nSamplesB = nrow(log2_normB_drop_sd0);
-# Recalculate MEs with color labels
-MEs0B = moduleEigengenes(log2_normB_drop_sd0, clustersB, impute = FALSE)$eigengenes
-MEsB = orderMEs(MEs0B)
-moduleTraitCor = cor(MEsB, 
-                     engraftment_varsB, use = "p", method = "spearman");
-moduleTraitPvalue = corPvalueStudent(moduleTraitCor, nSamplesB)
 
-# Will display correlations and their p-values
-textMatrix =  paste(signif(moduleTraitCor, 2), "\n(",
-                    signif(moduleTraitPvalue, 1), ")", sep = "");
-dim(textMatrix) = dim(moduleTraitCor)
-# Display the correlation values within a heatmap plot
-colnames(engraftment_varsB) <- c("eng_day_anc", "eng_day_plt")
 
-labeledHeatmap(Matrix = moduleTraitCor,
-               xLabels = names(engraftment_varsB),
-               yLabels = names(MEsB),
-               ySymbols = names(MEsB),
-               colorLabels = FALSE,
-               colors = greenWhiteRed(50),
-               textMatrix = textMatrix,
-               setStdMargins = FALSE,
-               cex.text = 0.5,
-               zlim = c(-1,1),
-               main = paste("Module-trait relationships"))
-```
 Timepoint B
 
 ####  Question 3: Correlation of Immune reconstitution and clinical endpoints
@@ -741,87 +660,55 @@ Timepoint B
  Using pearson's correlation, the following results were obtained. 
  Significant with 14 tests = 0.05/14 or < 0.00357
  
+
+ ##### miRNA targets from TimepointA significantly correlated with Blood Cell Counts
 ```{r bloodcellsA}
 
-### 2. Blood Cells Variables ####
-# a_bVarsB <- a_bVars[rows_8,]
+# Define numbers of genes and samples
+nGenes = ncol(log2_normA);
+nSamples = nrow(log2_normA);
+
+# Spearman’s rank correlation coefficient, or Spearman’s correlation coefficient, as the name suggests, is a nonparametric approach to measuring correlation using rank values.
+moduleTraitCor = stats::cor(log2_normA, 
+                            Clin_scoreVars, 
+                            method = "spearman")# spearman: rank correlation 
+
+## remove all the NAs
+TraitCor_dropNA<- moduleTraitCor[rowSums(is.na(moduleTraitCor)) !=2,]
+TraitCor_dropNA_reorder <- cluster_matrix(TraitCor_dropNA)
+
+# Calculate P-values based on sample size (package: WGCNA)
+TraitPvalue = corPvalueStudent(TraitCor_dropNA_reorder, nSamples)
+
+#### trim the insignificant genes to make the figure more readable 
+pvalue_threshold <- 0.15
+# identify non significant genes according to threshold
+notSignificant <- TraitPvalue %>%
+  as.data.frame() %>% 
+  filter(anc_engraftment_day >= pvalue_threshold & plt_engraftment_day >= pvalue_threshold) %>% 
+  row.names()
+# remove genes from data sets
+TraitCorFig <- TraitCor_dropNA_reorder[!( rownames(TraitCor_dropNA_reorder) %in% notSignificant),]
+TraitPvalueFig <- TraitPvalue[!( rownames(TraitPvalue) %in% notSignificant),]
+
+# TextMatrix will display correlations and their p-values
+textMatrix =  paste(signif(TraitCorFig, 2), "\n(",
+                    signif(TraitPvalueFig, 1), ")", sep = "");
+dim(textMatrix) = dim(TraitCorFig)
 
 
-moduleTraitCor = cor(MEsA, 
-                     a_bVars, use = "p");
-moduleTraitPvalue = corPvalueStudent(moduleTraitCor, nSamplesB)
-
-# Will display correlations and their p-values
-textMatrix =  paste(signif(moduleTraitCor, 2), "\n(",
-                    signif(moduleTraitPvalue, 1), ")", sep = "");
-dim(textMatrix) = dim(moduleTraitCor)
-
-labeledHeatmap(Matrix = moduleTraitCor,
-               xLabels = names(a_bVars),
-               yLabels = names(MEsA),
-               ySymbols = names(MEsA),
+# Display the correlation values within a heatmap plot
+labeledHeatmap(Matrix = TraitCorFig,
+               xLabels = names(engraftment_vars),
+               yLabels = rownames(TraitCorFig),
+               ySymbols = rownames(TraitCorFig),
                colorLabels = FALSE,
-               colors = greenWhiteRed(50),
+               colors = blueWhiteRed(50),
                textMatrix = textMatrix,
-               setStdMargins = FALSE,
                cex.text = 0.5,
                zlim = c(-1,1),
                main = paste("Module-trait relationships"))
-
 ```
- Timepoint A
- 
-
- 
-```{r bloodcellsB}
-
-### 2. Blood Cells Variables ####
-a_bVarsB <- a_bVars[rows_8,]
-
-
-moduleTraitCor = cor(MEsB, 
-                     a_bVarsB, use = "p")
-moduleTraitPvalue = corPvalueStudent(moduleTraitCor, nSamplesB)
-
-# Will display correlations and their p-values
-textMatrix =  paste(signif(moduleTraitCor, 2), "\n(",
-                    signif(moduleTraitPvalue, 1), ")", sep = "");
-dim(textMatrix) = dim(moduleTraitCor)
-
-
-labeledHeatmap(Matrix = moduleTraitCor,
-               xLabels = names(a_bVarsB),
-               yLabels = names(MEsB),
-               ySymbols = names(MEsB),
-               colorLabels = FALSE,
-               colors = greenWhiteRed(50),
-               textMatrix = textMatrix,
-               setStdMargins = FALSE,
-               cex.text = 0.5,
-               zlim = c(-1,1),
-               main = paste("Module-trait relationships"))
-
-```
- Timepoint B 
- 
-```{r bloodcellsB_genes}
-
-bloodcellsB <- data_clustersB %>% 
-  filter(clustersB ==6 ) %>% 
-  rownames()
-
-
-bloodcellsB <- log2_normB %>% 
-  dplyr::select(all_of(bloodcellsB))
-
-bloodcellsB %>% 
-  datatable()
-
-```
- This cluster is all NAs and is very few genes, this caused a random significant correlation
- 
- 
-
  
  
 ####  Question 4: Correlation of Clincal Scoring Endpoints
@@ -831,65 +718,52 @@ bloodcellsB %>%
  Using pearson's correlation, the following results were obtained. 
  Significant with 8 tests = 0.05/8 or < 0.00625
  
-```{r clin_scoreA}
-### 3. Clinical Scoring  ####
 
-moduleTraitCor = cor(MEsA, 
-                     Clin_scoreVars, use = "p")
-moduleTraitPvalue = corPvalueStudent(moduleTraitCor, nSamplesA)
+##### miRNA targets from TimepointA significantly correlated with Clinical Scores
+```{r clinA}
+### 1. Clinical Score Variables 
+# Define numbers of genes and samples
+nGenes = ncol(log2_normA);
+nSamples = nrow(log2_normA);
 
-# Will display correlations and their p-values
-textMatrix =  paste(signif(moduleTraitCor, 2), "\n(",
-                    signif(moduleTraitPvalue, 1), ")", sep = "");
-dim(textMatrix) = dim(moduleTraitCor)
+# Spearman’s rank correlation coefficient, or Spearman’s correlation coefficient, as the name suggests, is a nonparametric approach to measuring correlation using rank values.
+moduleTraitCor = stats::cor(log2_normA, 
+                            Clin_scoreVars, 
+                            method = "spearman")# spearman: rank correlation 
+
+## remove all the NAs
+TraitCor_dropNA<- moduleTraitCor[rowSums(is.na(moduleTraitCor)) !=2,]
+TraitCor_dropNA_reorder <- cluster_matrix(TraitCor_dropNA)
+
+# Calculate P-values based on sample size (package: WGCNA)
+TraitPvalue = corPvalueStudent(TraitCor_dropNA_reorder, nSamples)
+
+#### trim the insignificant genes to make the figure more readable 
+pvalue_threshold <- 0.15
+# identify non significant genes according to threshold
+notSignificant <- TraitPvalue %>%
+  as.data.frame() %>% 
+  filter(anc_engraftment_day >= pvalue_threshold & plt_engraftment_day >= pvalue_threshold) %>% 
+  row.names()
+# remove genes from data sets
+TraitCorFig <- TraitCor_dropNA_reorder[!( rownames(TraitCor_dropNA_reorder) %in% notSignificant),]
+TraitPvalueFig <- TraitPvalue[!( rownames(TraitPvalue) %in% notSignificant),]
+
+# TextMatrix will display correlations and their p-values
+textMatrix =  paste(signif(TraitCorFig, 2), "\n(",
+                    signif(TraitPvalueFig, 1), ")", sep = "");
+dim(textMatrix) = dim(TraitCorFig)
 
 
-labeledHeatmap(Matrix = moduleTraitCor,
-               xLabels = names(Clin_scoreVars),
-               yLabels = names(MEsA),
-               ySymbols = names(MEsA),
+# Display the correlation values within a heatmap plot
+labeledHeatmap(Matrix = TraitCorFig,
+               xLabels = names(engraftment_vars),
+               yLabels = rownames(TraitCorFig),
+               ySymbols = rownames(TraitCorFig),
                colorLabels = FALSE,
-               colors = greenWhiteRed(50),
+               colors = blueWhiteRed(50),
                textMatrix = textMatrix,
-               setStdMargins = FALSE,
                cex.text = 0.5,
                zlim = c(-1,1),
                main = paste("Module-trait relationships"))
-
-
 ```
-Timepoint A
-
-```{r clin_scoreB}
-
-### 3. Clinical Scoring  ####
-Clin_scoreVarsB <- Clin_scoreVars[rows_8,]
-
-
-moduleTraitCor = cor(MEsB, 
-                     Clin_scoreVarsB, use = "p")
-moduleTraitPvalue = corPvalueStudent(moduleTraitCor, nSamplesB)
-
-# Will display correlations and their p-values
-textMatrix =  paste(signif(moduleTraitCor, 2), "\n(",
-                    signif(moduleTraitPvalue, 1), ")", sep = "");
-dim(textMatrix) = dim(moduleTraitCor)
-
-
-labeledHeatmap(Matrix = moduleTraitCor,
-               xLabels = names(Clin_scoreVarsB),
-               yLabels = names(MEsB),
-               ySymbols = names(MEsB),
-               colorLabels = FALSE,
-               colors = greenWhiteRed(50),
-               textMatrix = textMatrix,
-               setStdMargins = FALSE,
-               cex.text = 0.5,
-               zlim = c(-1,1),
-               main = paste("Module-trait relationships"))
-
-```
-Timepoint B has significant assocation with promis_score at timepoint A at gene cluster ME8
-
- 
- 
