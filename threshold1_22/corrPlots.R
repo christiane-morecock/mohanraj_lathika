@@ -17,7 +17,6 @@ nGenes = ncol(log2_normA);
 nSamples = nrow(log2_normA);
 
 # Spearman’s rank correlation coefficient, or Spearman’s correlation coefficient, as the name suggests, is a nonparametric approach to measuring correlation using rank values.
-
 moduleTraitCor = stats::cor(log2_normA, 
                             engraftment_vars, 
                             method = "spearman")# spearman: rank correlation 
@@ -30,12 +29,13 @@ TraitCor_dropNA_reorder <- cluster_matrix(TraitCor_dropNA)
 TraitPvalue = corPvalueStudent(TraitCor_dropNA_reorder, nSamples)
 
 #### trim the insignificant genes to make the figure more readable 
-pvalue_threshold <- 0.2
+pvalue_threshold <- 0.15
+# identify non significant genes according to threshold
 notSignificant <- TraitPvalue %>%
   as.data.frame() %>% 
   filter(anc_engraftment_day >= pvalue_threshold & plt_engraftment_day >= pvalue_threshold) %>% 
   row.names()
-
+# remove genes from data sets
 TraitCorFig <- TraitCor_dropNA_reorder[!( rownames(TraitCor_dropNA_reorder) %in% notSignificant),]
 TraitPvalueFig <- TraitPvalue[!( rownames(TraitPvalue) %in% notSignificant),]
 
@@ -66,10 +66,12 @@ sig_fun <- function(x){
 TraitPvalueFig %>%
   as.data.frame() %>% 
   mutate_all(sig_fun) %>% 
-  filter(anc_engraftment_day ==TRUE | plt_engraftment_day == TRUE)
+  filter(anc_engraftment_day ==TRUE | plt_engraftment_day == TRUE) %>% 
+  kable()
 
 
-##### Step AIC
+##### Step AIC #### 
+# THIS IS A DEAD END. This is not working. 
 
 engraftmentVars_tib <-engraftment_vars %>% 
   as.data.frame() %>% 
@@ -164,13 +166,61 @@ model_sel <- stepAIC(null_model,
                      trace = 0)
 model_sel$anova
 
-# glm(formula = anc_engraftment_day ~ `hsa-miR-301b-5p` + `hsa-miR-3168` + 
-#       `hsa-miR-660-5p` + `hsa-miR-185-5p` + `hsa-miR-6720-3p` + 
-#       `hsa-miR-2110` + `hsa-miR-4443` + `hsa-miR-1203` + `hsa-miR-1286` + 
-#       `hsa-miR-497-5p` + `hsa-miR-378f` + `hsa-miR-196a-5p` + `hsa-miR-188-3p` + 
-#       `hsa-miR-29c-3p` + `hsa-miR-5001-5p` + `hsa-miR-3144-3p` + 
-#       `hsa-miR-197-3p` + `hsa-miR-656-3p` + `hsa-miR-126-3p` + 
-#       `hsa-miR-203a-5p` + `hsa-miR-1537-3p` + `hsa-miR-186-5p` + 
-#       `hsa-let-7a-5p`, data = datEngraftmentA)
+lm.fit <- lm(formula = anc_engraftment_day ~ `hsa-miR-301b-5p` + `hsa-miR-3168` + 
+                `hsa-miR-660-5p` + `hsa-miR-185-5p` + `hsa-miR-6720-3p` + 
+                `hsa-miR-2110` + `hsa-miR-4443` + `hsa-miR-1203` + `hsa-miR-1286` + 
+                `hsa-miR-497-5p` + `hsa-miR-378f` + `hsa-miR-196a-5p` + `hsa-miR-188-3p` + 
+                `hsa-miR-29c-3p` + `hsa-miR-5001-5p` + `hsa-miR-3144-3p` + 
+                `hsa-miR-197-3p` + `hsa-miR-656-3p` + `hsa-miR-126-3p` + 
+                `hsa-miR-203a-5p` + `hsa-miR-1537-3p` + `hsa-miR-186-5p` , data = datEngraftmentA)
 
 
+vif(full_model)
+## Variables removed for multicolinearity:
+# `hsa-miR-1287-3p`
+# `hsa-miR-1203`
+# `hsa-miR-6720-3p`
+# `hsa-miR-126-3p`
+# `hsa-miR-1537-3p`
+# `hsa-miR-5001-5p`
+
+lm.fit <- lm(formula = anc_engraftment_day ~ `hsa-miR-301b-5p` + `hsa-miR-3168` + 
+                `hsa-miR-660-5p` + `hsa-miR-185-5p` + `hsa-miR-2110` +`hsa-miR-4443` +
+                `hsa-miR-1286` + `hsa-miR-497-5p` + `hsa-miR-378f` +
+                `hsa-miR-196a-5p` + `hsa-miR-188-3p` + `hsa-miR-29c-3p` + 
+                `hsa-miR-3144-3p` + `hsa-miR-197-3p` + `hsa-miR-656-3p` + 
+                `hsa-miR-203a-5p` + `hsa-miR-186-5p` , data = datEngraftmentA)
+
+kable(summary(lm.fit)$coefficients, digits = 6)
+summary(lm.fit)$adj.r.squared
+
+# significant indicators:
+# `hsa-miR-301b-5p` 
+# `hsa-miR-660-5p` 
+# `hsa-miR-185-5p`  
+# `hsa-miR-4443`
+# `hsa-miR-2110` 
+
+full_model <- lm(formula = anc_engraftment_day ~ `hsa-miR-301b-5p` + `hsa-miR-3168` + 
+     `hsa-miR-660-5p` + `hsa-miR-185-5p` + `hsa-miR-2110` +`hsa-miR-4443` +
+     `hsa-miR-1286` + `hsa-miR-497-5p` + `hsa-miR-378f` +
+     `hsa-miR-196a-5p` + `hsa-miR-188-3p` + `hsa-miR-29c-3p` + 
+     `hsa-miR-3144-3p` + `hsa-miR-197-3p` + `hsa-miR-656-3p` + 
+     `hsa-miR-203a-5p` + `hsa-miR-186-5p` , data = datEngraftmentA)
+
+null_model <- lm(anc_engraftment_day  ~ 1, data = datEngraftmentA)
+
+model_sel <- stepAIC(full_model,
+                     scope=list(lower = null_model, upper = full_model),
+                     direction = "backward",
+                     trace = 0)
+model_sel$anova
+
+
+lm.fit <- lm(formula = anc_engraftment_day ~ `hsa-miR-301b-5p` + `hsa-miR-3168` + 
+     `hsa-miR-660-5p` + `hsa-miR-185-5p` + `hsa-miR-2110` + `hsa-miR-4443` + 
+     `hsa-miR-378f` + `hsa-miR-196a-5p` + `hsa-miR-188-3p` + `hsa-miR-29c-3p` + 
+     `hsa-miR-3144-3p` + `hsa-miR-656-3p` + `hsa-miR-203a-5p` + 
+     `hsa-miR-186-5p`, data = datEngraftmentA)
+
+summary(lm.fit)
