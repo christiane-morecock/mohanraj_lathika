@@ -1,0 +1,203 @@
+---
+title: "Demo Demographics Table"
+output: html_document
+---
+
+This script generates the demographics table.
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, warning = FALSE)
+library(tidyverse)
+library(janitor)
+library(knitr)
+# install.packages("kableExtra")
+library(kableExtra)
+# webshot::install_phantomjs()
+
+# Read in the data
+ehr_dat <- read_csv("./clean_data/ehr_full.csv")
+
+
+```
+
+
+
+```{r table_data, warning=FALSE}
+
+table_dat <- ehr_dat %>% 
+  #filter for only one datapoint per patient
+  filter(timepoint == "A" | timepoint == "B") %>%
+  # Generate counts for each
+  mutate(gender_count = ifelse(gender== "F", 1,
+                               ifelse(gender == "M", 0,
+                                      0)),
+         aa_his_count = ifelse(race== "African American" & 
+                             ethnicity == "Hispanic", 1,
+                               0),
+         aa_nonhis_count = ifelse(race== "African American" & 
+                                    ethnicity != "Hispanic", 1,
+                                  0),
+         pi_count = ifelse(race== "Pacific Islander", 1,
+                           0),
+         age_18.29 = ifelse(age < 30 & age > 18, 1,
+                            0),
+         age_30.49 = ifelse(age < 50 & age > 29, 1,
+                            0),
+         age_50.64 = ifelse(age < 65 & age > 49, 1,
+                            0),
+         age_65 = ifelse(age > 64, 1,
+                            0),
+         ed_hs = ifelse(education == "High School Diploma",
+                        1,
+                        0),
+         ed_col = ifelse(education == "Some college",
+                        1,
+                        0),
+         ed_bac = ifelse(education == "Bachelors",
+                        1,
+                        0),
+         ed_as = ifelse(education == "Associates",
+                        1,
+                        0),
+         ed_phd = ifelse(education == "PhD/Other Advanced Degree",
+                        1,
+                        0),
+         ed_ms = ifelse(education == "Masters",
+                        1,
+                        0),
+         mar_sing = ifelse(marital_status == "single",
+                           1,
+                           0),
+         mar_mar = ifelse(marital_status == "married",
+                           1,
+                           0),
+         mar_div = ifelse(marital_status == "divorced",
+                           1,
+                           0),
+         mar_wid = ifelse(marital_status == "widowed",
+                           1,
+                           0),
+         work_emp = ifelse(work_status == "full time",
+                          1,
+                          0),
+         work_not_emp = ifelse(work_status == "not employed",
+                  1,
+                  0),
+         work_pt = ifelse(work_status == "part time",
+                               1,
+                               0),
+         income_1 = ifelse(income_max <= 25000,
+                             1,
+                             0),
+         income_2 = ifelse(income_max < 50000 & income_max >25000,
+                             1,
+                             0),
+         income_3 = ifelse(income_max < 75000 & income_max >50000,
+                             1,
+                             0),
+         income_4 = ifelse(income_max < 100000 & income_max >75000,
+                             1,
+                             0),
+         income_5 = ifelse(income_max < 150000 & income_max >100000,
+                             1,
+                             0),
+         income_6 = ifelse(income_max > 150000,
+                           1,
+                           0)) %>% 
+  group_by(timepoint) %>% 
+  # Summarize counts 
+  summarise(gender_fem = sum(gender_count),
+            gender_mal = length(gender_count) - gender_fem,
+            race_aa_hispanic  = sum(aa_his_count),
+            race_aa_nonhispanic  = sum(aa_nonhis_count),
+            race_pi  = sum(pi_count),
+            race_white  = length(aa_his_count) - sum(race_aa_hispanic+race_pi+ race_aa_nonhispanic),
+            age_30.49 = sum(age_30.49),
+            age_50.64 = sum(age_50.64),
+            age_65 = sum(age_65, na.rm = TRUE),
+            mar_sing = sum(mar_sing, na.rm = TRUE),
+            mar_mar = sum(mar_mar, na.rm = TRUE),
+            mar_div = sum(mar_div, na.rm = TRUE),
+            mar_wid = sum(mar_wid, na.rm = TRUE),
+            ed_hs = sum(ed_hs, na.rm = TRUE),
+            ed_col = sum(ed_col, na.rm = TRUE),
+            ed_as = sum(ed_as, na.rm = TRUE),
+            ed_bac = sum(ed_bac, na.rm = TRUE),
+            ed_ms = sum(ed_ms, na.rm = TRUE),
+            ed_phd = sum(ed_phd, na.rm = TRUE),
+            emp_not = sum(work_not_emp, na.rm = TRUE),
+            emp_pt = sum(work_pt, na.rm = TRUE),
+            emp_emp = sum(work_emp, na.rm = TRUE),
+            inc_25 = sum(income_1, na.rm = TRUE),
+            inc_49 = sum(income_2, na.rm = TRUE),
+            inc_74 = sum(income_3, na.rm = TRUE),
+            inc_99 = sum(income_4, na.rm = TRUE),
+            inc_149 = sum(income_5, na.rm = TRUE),
+            inc_150 = sum(income_6, na.rm = TRUE)) %>% 
+  column_to_rownames("timepoint") %>% 
+  t() %>%  as.data.frame() %>% 
+  rowwise() %>% 
+  mutate(A_perc = (A / 24) *100,
+         B_perc = (B / 22) *100) %>% 
+  relocate(A_perc, .after = A) %>% 
+  as.data.frame()
+
+```
+
+
+```{r round_function}
+
+round_tab <- function(x){
+  round(x, digits = 1)
+}
+
+```
+
+
+
+
+```{r table_output, warnings = FALSE}
+rownames(table_dat)<- c("Female", "Male",
+                        "African American Hispanic", "African American Non-Hispanic", "Pacific Islander", "White Non-Hispanic",
+                        "Age 30-49","Age 50-64", "Age 65 and above",
+                        "Single", "Married", "Divorced", "Widowed",
+                        "High School Diploma", "Some College", "Associate", "Bachelor's", "Master's", "PhD/Other Advanced Degree",
+                        "Not Employed", "Part-Time", "Full Time",
+                        "Less than $25,000", "35,000 to $49,999","50,000 to $74,999","75,000 to $99,999", "100,000 to $149,999", "$150,000 or more"
+                        )
+
+demo_tab <- table_dat%>%  
+  mutate_if(is.numeric, round_tab) %>%
+  kbl(caption = "demo caption: miRNA data collected from patients in study",
+      booktabs = T,
+      col.names = c("n", "%","n","%")) %>%
+  add_header_above( c("desc.","Pre-Transplant"=2, "Post-Transplant"=2)) %>% 
+  kable_styling(position = "left") %>% 
+  group_rows("Gender", 1,2 ) %>% 
+  group_rows("Race/Ethnicity", 3,6 ) %>% 
+  group_rows("Age", 7,9 ) %>% 
+  group_rows("Marital Status", 10,13 ) %>% 
+  group_rows("Education", 14,19 ) %>% 
+  group_rows("Employment Status", 20,22 ) %>% 
+  group_rows("Income", 23,28) %>%
+  kable_styling(bootstrap_options = "bordered",
+                "striped",
+                full_width = FALSE) 
+
+demo_tab
+
+
+```
+
+
+```{r savetab, warnings = FALSE}
+
+  save_kable(demo_tab, 
+             "./clean_data/demo_tab.pdf"
+)
+
+write.csv(table_dat, "./clean_data/demographics_aggregate.csv")
+
+
+```
+
