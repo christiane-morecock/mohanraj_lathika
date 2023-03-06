@@ -1,0 +1,895 @@
+---
+title: "Preliminary Analysis of NanoString Data"
+author: "christiane morecock"
+date: "2022-12-04"
+output: html_document
+---
+
+```{r setup, include=FALSE, echo=FALSE, warning=FALSE, message=FALSE}
+knitr::opts_chunk$set(echo=FALSE, warning=FALSE, message=FALSE)
+
+# Read in Libraries
+library(dplyr)
+library(janitor)
+library("DESeq2")
+library("ComplexHeatmap")
+library("NMF")
+library(RNASeqBits)
+library(ggplot2)
+library(ggrepel)
+library(tidyverse)
+library(viridis)
+library(DT)
+library(plotly)
+
+
+```
+
+
+
+## Samples 
+Information about sample names
+```{r metadata, echo=FALSE, warning=FALSE, message=FALSE}
+input_dir <- "./threshold1_22/"
+
+# Load Previously Transformed data Data
+load("./threshold1_22/wgcna/clean_expr_clin_dat.RData")
+## log2_norm = log2(Normalized Data +1)
+## log2_normA for timepoint A
+## log2_normB for timepoint B
+## a_bvars = blood cell variables with A and B timepoints
+## Clin_scoreVars = clinical scoring variables with A and B timepoints
+## engraftment_vars = engraftment datapoints, rownames are patient IDs
+
+load("./raw_data_transfigurations.RData")
+## Description in RealignToProject2023.Rmd
+
+# saving normalized data configurations to a variable
+vnames <- load(str_c(input_dir, "normalized_data_configurations.RData"))
+## Same as raw data transfigurations, just with norm data. 
+# TODO: standardize scripts for both of data files and standarize names 
+
+# List of candidate housekeeping genes
+candidates <- read_csv("./threshold1_22/NormFinder_OrderedResults_threshold1_222022-10-10.csv")
+# List of official housekeeping genes 
+housekeeping <- read.csv(str_c(input_dir, "housekeeping_genes.csv"))
+
+# code to show metadata in table
+df %>% 
+  knitr::kable(
+      col.names = (c("File Name", 
+             "Sample",
+             "Timepoint",
+             "Cart")),
+      align = "lccrr"
+  ) 
+
+```
+
+## QC Analysis
+
+There were no QC flags on the raw data. 
+
+
+## Raw Data 
+
+### Plot the Spike-in controls across samples
+
+```{r spike_in, echo=FALSE, warning=FALSE, message=FALSE}
+# add cartridge ID to metadata
+trans_dat$cart <- df %>% pull(cart)
+# plot spike in controls across samples, color for cartridge ID
+trans_dat %>% 
+  mutate(max_spike = osa_mi_r414 == max(osa_mi_r414),
+         min_spike = osa_mi_r414 == min(osa_mi_r414)) %>% 
+  ggplot(aes(y= osa_mi_r414, x = fct_reorder(names, osa_mi_r414)))+
+  geom_point(aes(color = cart))+
+  gghighlight::gghighlight(max_spike ==TRUE |  min_spike == TRUE,
+                           label_key = osa_mi_r414,
+                           unhighlighted_params = list(colour = NULL) )+
+  theme(axis.text.x = element_text(angle = 90))+
+  ggtitle("Spike-in Control across samples")+
+  ylab("osa-mir414 Raw Counts")+
+  xlab("Samples")
+
+
+```
+
+
+This shows a max of `r max(trans_dat$osa_mi_r414)`, min of `r min(trans_dat$osa_mi_r414)` and range of `r max(trans_dat$osa_mi_r414) - min(trans_dat$osa_mi_r414)`
+
+
+## Selecting a threshold for normalization 
+
+```{r threshold_calc, echo=FALSE}
+
+means_vec <- means_vec[-1:-3]
+
+mean_thresh <-  round(mean(means_vec), digits = 0)
+
+# mean of mean + 1sd 
+threshold1 <-  round(mean(means_vec) + sd(means_vec), digits = 0)
+#threshold1
+# mean of mean + 2sd 
+threshold2 <-  round(mean(means_vec) + 2 * sd(means_vec), digits = 0)
+#threshold2
+# mean of mean + 3sd 
+threshold3 <-  round(mean(means_vec) + 3 * sd(means_vec), digits = 0)
+#threshold3
+# mean of mean + 4sd 
+threshold4 <-  round(mean(means_vec) + 4 * sd(means_vec), digits = 0)
+#threshold4
+```
+
+```{r calculateRetainedData}
+n_datapoints <- length(log_dat_long$raw_counts)
+
+included <- log_dat_long %>% 
+  filter(raw_counts > log2(threshold2)) %>% 
+  pull(raw_counts) %>% 
+  length()
+
+```
+Four thresholds were calculated for normalization. Below, the graph will show the thresholds plotted on the raw counts under 150
+
+Mean of Mean of Negative Controls + 1 Standard Deviation = `r threshold1`  
+
+Mean of Mean of Negative Controls + 2 Standard Deviation = `r threshold2`  
+
+Mean of Mean of Negative Controls + 3 Standard Deviation = `r threshold3`  
+
+Mean of Mean of Negative Controls + 4 Standard Deviation = `r threshold4`  
+
+**For this Report we chose a Threshold of 22**
+
+`r round(included/n_datapoints, 4) * 100` % of data points maintained by this threshold 
+
+
+
+```{r all_raw_data, , echo=FALSE, warning=FALSE, message=FALSE}
+
+# Point graph of thresholds and datapoints
+point_graph_raw <- log_dat_long %>% 
+  # filter(raw_counts < 150) %>% 
+  ggplot(aes(x= probe_name, 
+             y = raw_counts,
+             color = group))+
+  geom_jitter(size = 1,
+              alpha = 0.2) +
+  scale_color_viridis(discrete=TRUE)+
+  geom_hline(yintercept = log2(threshold1),
+             # color ="#99CCED",
+             size = 1,
+             alpha = 0.5) +
+  geom_hline(yintercept = log2(threshold2),
+             # color ="#7E38B7",
+             size = 1,
+             alpha = 0.5)+
+    geom_hline(yintercept = log2(threshold3),
+               # color ="#541675",
+               size = 1,
+             alpha = 0.5) +
+    geom_hline(yintercept = log2(threshold4),
+               # color ="#3E1747",
+               size = 1,
+             alpha = 0.5)+
+      geom_hline(yintercept = log2(mean_thresh),
+               color = "red",
+               size = 1,
+             alpha = 0.5)+
+    # scale_y_continuous(name = "Raw Counts", breaks = seq(0, 150, 10), limits = c(0,150))+
+    theme(axis.text.x = element_blank(),
+          axis.title.x = element_blank())+
+  xlab("Probes")+
+  ylab("log2(raw counts)")
+
+point_graph_raw
+
+
+```
+
+```{r all_raw_density, , echo=FALSE, warning=FALSE, message=FALSE}
+# Density plot of thresholds and datapoints
+raw_dat_long %>% 
+  # filter(raw_counts < 150) %>%
+  ggplot(aes( x = raw_counts,
+             color = group))+
+  geom_density(size = 1.25,
+              alpha = 0.2) +
+  scale_color_viridis(discrete=TRUE)+
+  geom_vline(xintercept = threshold1,
+             # color ="#99CCED",
+             size = 1,
+             alpha = 0.5) +
+  geom_vline(xintercept = threshold2,
+             # color ="#7E38B7",
+             size = 1,
+             alpha = 0.5)+
+    geom_vline(xintercept = threshold3,
+               # color ="#541675",
+               size = 1,
+             alpha = 0.5) +
+    geom_vline(xintercept = threshold4,
+               # color ="#3E1747",
+               size = 1,
+             alpha = 0.5)+ 
+  geom_vline(xintercept = mean_thresh,
+               color = "red",
+               size = 1,
+             alpha = 0.5)+
+  scale_x_continuous(name = "Raw Counts", breaks = seq(0, 150, 10), limits = c(0,150))
+
+```
+
+## PCA Raw data
+
+```{r PCA_raw, echo=FALSE, warning=FALSE, message=FALSE}
+# PCA plot before normalization
+log2_raw <- log2_raw %>% 
+  column_to_rownames("probe_name") %>% 
+  select(-accession_number, -annotation)
+
+## PCA Analysis
+data.scaled <- na.omit( as.data.frame(t(scale(t(as.matrix(log2_raw))))) )  ##also removes all rows that were assigned a value of 20 for all samples as these will have a NaN value.
+
+pca <-  prcomp(t(data.scaled))
+
+## The percent variance Explained:
+# data.frame(summary(pca)$importance)[, 1:min(5, ncol(summary(pca)$importance))]
+
+colorby <- "condition"
+ggplot(data = data.frame(pca$x, samples, samples = samples$condition, stringsAsFactors = F), 
+       aes(x = as.numeric(PC1), y = as.numeric(PC2), label = name)) +
+  theme(plot.title = element_text(lineheight = 0.8, face="bold")) +
+  ggtitle(paste("PCA Analysis, coloring by ", colorby)) +
+  geom_point(aes(color = eval(parse(text = colorby))), size = 3) +
+  geom_text_repel(colour = "black", size = 3) +
+  geom_hline(yintercept = 0, colour = "lightgrey", size=.1) +
+  geom_vline(xintercept = 0, colour = "lightgrey", size=.1) +
+  labs(color = colorby) +
+  theme_bw() +
+  scale_x_continuous(name = paste0("PC1, ", round(summary(pca)$importance[2,1] * 100, digits = 2), "% variability" )) +
+  scale_y_continuous(name = paste0("PC2, ", round(summary(pca)$importance[2,2] * 100, digits = 2), "% variability" ))+
+  scale_color_viridis(discrete = TRUE)
+
+```
+
+
+## Normalization 
+Normalization was done using the developed pipeline from the Bioinformatics Core. 
+
+![Bei's pipeline](../nanostring/normalization_pipeline.png)
+
+### Background Threshold
+
+The raw NanoString counts had threshold set to **mean of mean of negative controls + 1SD** of the negative control probes, then was exported from Nsolver to the NormFinder script where houseskeeping genes were identified.  
+This background threshold of 20 had 22% to 66%  normalized reads above the threshold
+Using background subtraction, 21% to 48% of normalized reads were above the threshold.  
+
+
+
+
+### HouseKeeping Genes Selected 
+
+NormFinder function in R was used to find the most stable genes across samples and timepoints to be used as housekeeping genes in normalization. I removed all genes where the mean count was less than 50, then I ran the NormFinder program. The following genes with a stability less than 0.25 were investigated for housekeeping genes. 
+
+
+
+```{r normfinder_candidates, echo=FALSE, warning=FALSE, message=FALSE}
+library(DT)
+
+# Listof candidate Genes. Probably does not need to be displayed
+
+candidates %>% 
+  filter(Stability < 0.25) %>% 
+  data.table::data.table()
+
+```
+
+Then, I used the minimum CV% + 20% to narrow down the list further. 
+
+```{r normfinder_cv, echo=FALSE, warning=FALSE, message=FALSE}
+# List of genes after CV% filter 
+ ## Probably does not need displaying
+housekeeping %>%
+  data.table::data.table()
+
+```
+
+
+
+
+
+## Normalized Data
+
+### PCA Normalized data
+
+```{r norm_pca, echo=FALSE, warning=FALSE, message=FALSE}
+### PCA after normalization
+
+## PCA Analysis
+data.scaled <- na.omit( as.data.frame(t(scale(t(as.matrix(log2_norm))))) )  ##also removes all rows that were assigned a value of 20 for all samples as these will have a NaN value.
+
+pca <-  prcomp(t(data.scaled))
+
+## The percent variance Explained:
+# data.frame(summary(pca)$importance)[, 1:min(5, ncol(summary(pca)$importance))]
+
+colorby <- "condition"
+ggplot(data = data.frame(pca$x, samples, samples = samples$condition, stringsAsFactors = F), 
+       aes(x = as.numeric(PC1), y = as.numeric(PC2), label = name)) +
+  theme(plot.title = element_text(lineheight = 0.8, face="bold")) +
+  ggtitle(paste("PCA Analysis, coloring by ", colorby)) +
+  geom_point(aes(color = eval(parse(text = colorby))), size = 3) +
+  geom_text_repel(colour = "black", size = 3) +
+  geom_hline(yintercept = 0, colour = "lightgrey", size=.1) +
+  geom_vline(xintercept = 0, colour = "lightgrey", size=.1) +
+  labs(color = colorby) +
+  theme_bw() +
+  scale_x_continuous(name = paste0("PC1, ", round(summary(pca)$importance[2,1] * 100, digits = 2), "% variability" )) +
+  scale_y_continuous(name = paste0("PC2, ", round(summary(pca)$importance[2,2] * 100, digits = 2), "% variability" )) +
+  scale_color_viridis(discrete = TRUE)
+
+```
+
+
+
+```{r boxplot_norm, echo=FALSE, warning=FALSE, message=FALSE}
+
+### Box Plot of Log2 Normalized Data
+library(reshape2)
+
+mtx_to_plot <- melt(log2_norm)
+colnames(mtx_to_plot) <- c("Sample", "Exp")
+#mtx_to_plot <- left_join(mtx_to_plot, annot)
+
+# png(filename=paste("BoxPlot_log2_NormalizedCount_prelim.png", sep=""), width=800, height=800, res=300)
+
+boxnorm <- mtx_to_plot %>% 
+  filter(Exp > log2(threshold+1)) %>% 
+  ggplot(aes(x = Sample, y = Exp))+
+  geom_boxplot()+
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+  ylab("log2-Expression")
+
+ggplotly(boxnorm)
+
+
+```
+
+
+```{r spike_in_norm, echo=FALSE, warning=FALSE, message=FALSE}
+
+### Display spike in controls across samples AFTER normalization
+df %>%  
+  full_join(trans_norm,
+            by = c("sample" = "names"))  %>% 
+  clean_names() %>% 
+  mutate(max_spike = osa_mi_r414 == max(osa_mi_r414),
+         min_spike = osa_mi_r414 == min(osa_mi_r414)) %>% 
+  ggplot(aes(y= osa_mi_r414, x = fct_reorder(sample, osa_mi_r414)))+
+  geom_point(aes(color = cart))+
+  gghighlight::gghighlight(max_spike ==TRUE |  min_spike == TRUE,
+                           label_key = osa_mi_r414,
+                           unhighlighted_params = list(colour = NULL) )+
+  theme(axis.text.x = element_text(angle = 90))+
+  ggtitle("Spike-in Control across samples AFTER Normalization")+
+  ylab("osa-mir414 Raw Counts")+
+  xlab("Samples")
+
+
+
+```
+This shows a max of `r max(trans_norm$osa_mi_r414)`, min of `r min(trans_norm$osa_mi_r414)` and range of `r max(trans_norm$osa_mi_r414) - min(trans_norm$osa_mi_r414)`
+
+
+
+# Correlation  
+
+```{r heatmap_corr, echo=FALSE, warning=FALSE, message=FALSE}
+
+library(dendextend)
+library(heatmaply)
+library(tibble)
+library(dynamicTreeCut)
+suppressPackageStartupMessages(library(gplots))
+# dendextend documentation: https://cran.r-project.org/web/packages/dendextend/vignettes/dendextend.html#introduction
+
+
+# FDR cutoff.
+MIN_FDR = 0.05
+
+# Set the margins
+MARGINS = c(10, 10)
+
+# Relative heights of the rows in the plot.
+LHEI = c(1, 5)
+
+##Correlation plot
+# generate correlation matrix of data 
+data_cor <- cor(log2_norm)
+
+
+# if names were numeric
+# data_cor[ order(as.numeric(row.names(data_cor))), ]
+hc <- data_cor %>%
+# calculate a distance matrix using the euclidean method (standard),
+   dist(method = "euclidean") %>%
+# compute hierarchical clustering
+   hclust(method = "average")
+
+  dend <- hc %>%
+    # turn that object into a dendrogram.
+     as.dendrogram()
+
+dend <- dend %>%
+  # set("labels_colors", cutree(dend, k = 6)) %>%
+   set("branches_k_color", k = 6) %>%
+   set("branches_lwd", c(0.5)) %>%
+   ladderize
+
+
+
+col <- colorRampPalette(c("white", "red")) (n=20)
+groups <- data_cor %>% colnames %>%  str_detect("A")
+
+side_col <- ifelse(groups == TRUE, "purple", "yellow")
+  
+heatmap.2(data_cor,
+          distfun =function(x) dist(x,method = 'euclidean'),
+         # hclustfun=function(x) hclust(x,method = 'average'),
+         Rowv = dend,
+         Colv = dend,
+         density.info="none",
+         dendrogram="both",
+         trace="none",
+         scale="none",
+         RowSideColors = side_col,
+         ColSideColors = side_col,
+         col = col)
+
+```
+
+
+### Global heatmap
+
+```{r global_heatmap, echo=FALSE, warning=FALSE, message=FALSE, fig.width=10, fig.height=15}
+values <- log2_norm %>% 
+  as.matrix() 
+
+values = jitter(values, factor = 1, amount = 0.00001)
+
+zscores = NULL
+for (i in 1 : nrow(values)) {
+  row = values[i,]
+  zrow = (row - mean(row, na.rm = TRUE)) / sd(row, na.rm = TRUE)
+  zscores = rbind(zscores, zrow)
+}
+ 
+
+# Set the row names on the zscores.
+row.names(zscores) = row.names(values)
+
+# Turn the data into a matrix for heatmap2.
+zscores = as.matrix(zscores) 
+
+
+# Set the color palette.
+col <- colorRampPalette(c("red", "black", "green")) (n=20)
+
+
+test <- zscores %>% colnames %>% str_detect("A")
+# ifelse(test == TRUE, "yellow", "purple")
+
+hc <- zscores %>%
+# calculate a distance matrix using the euclidean method (standard),
+   dist(method = "euclidean") %>%
+# compute hierarchical clustering
+   hclust()
+
+  dend <- hc %>%
+    # turn that object into a dendrogram.
+     as.dendrogram()
+
+dend <- dend %>%
+  # set("labels_colors", cutree(dend, k = 6)) %>%
+   set("branches_k_color", k = 8) %>%
+   set("branches_lwd", c(0.5)) %>%
+   ladderize
+
+
+
+# Generate heatmap
+heatmap_save <- heatmap.2(zscores,
+                          na.rm=TRUE,
+                          col=col,
+                          density.info="none",
+                          dendrogram="both",
+                          trace="none",
+                          ColSideColors=ifelse(test == TRUE, "purple", "yellow"),
+                          labRow=FALSE,
+                          margins=MARGINS,
+                          lhei=LHEI,
+                          Rowv = dend
+)
+
+
+
+```
+## Differential Expression of miRNA
+
+### Question 1. Timepoint A vs B
+
+Differences in miRNA pre- and post transplant
+
+```{r ab_heatmap, echo=FALSE, warning=FALSE, message=FALSE, fig.width=10, fig.height=10}
+
+values <- DE_AB_dat %>% 
+  select(-47:-52)%>% 
+  as.matrix() 
+
+values = jitter(values, factor = 1, amount = 0.00001)
+
+zscores = NULL
+for (i in 1 : nrow(values)) {
+  row = values[i,]
+  zrow = (row - mean(row, na.rm = TRUE)) / sd(row, na.rm = TRUE)
+  zscores = rbind(zscores, zrow)
+}
+
+
+# Set the row names on the zscores.
+row.names(zscores) = row.names(values)
+
+# Turn the data into a matrix for heatmap2.
+zscores = as.matrix(zscores) 
+
+
+# Set the color palette.
+col <- colorRampPalette(c("red", "black", "green")) (n=20)
+
+
+test <- zscores %>% colnames %>% str_detect("B")
+# ifelse(test == TRUE, "yellow", "purple")
+
+
+# Generate heatmap
+heatmap_save <- heatmap.2(zscores,
+                          na.rm=TRUE,
+                          col=col,
+                          density.info="none",
+                          dendrogram="both",
+                          trace="none",
+                          ColSideColors=ifelse(test == TRUE, "yellow", "purple"),
+                          # labRow=FALSE,
+                          margins=MARGINS,
+                          lhei=LHEI
+)
+
+
+
+```
+### Weighted gene correlation network analysis (WGCNA) 
+
+
+Using a Weighted gene correlation network analysis to compare gene clusters from each time point to the clinical endpoints.
+This means that all genes are clustered together at each timepoint, then a PCA is calculated for each cluster. PC1 from each cluster for each sample is then calculated. This is called the module eigengene. The model eigengene is then compared to the clinical endpoints. 
+
+####  Question 2: Correlation of engraftment data 
+
+Is there a miRNA profile that is associated with engraftment?
+Using Rank correlation (spearman's) The following results identify gene clusters associated with engraftment day
+
+
+
+```{r timepointA}
+
+set.seed(1234)
+
+##Correlation plot
+# data has sd = 0 problems for the miRNAs thresholded to 22, eliminating these counts from the matrix. 
+test <- skimr::skim(log2_normA)
+
+# Filtering out miRNAs that are all the same number (threshold log2(22))
+filter_vec <- test %>% 
+filter(numeric.sd != 0) %>% pull(skim_variable)
+
+log2_normA_drop_sd0 <- log2_normA %>% 
+  select(all_of(filter_vec)) %>% 
+  as_tibble()
+
+# generate correlation matrix of data 
+data_cor <- cor(log2_normA_drop_sd0, use = 'pairwise.complete.obs')
+
+
+# if names were numeric
+# data_cor[ order(as.numeric(row.names(data_cor))), ]
+hc <- data_cor %>%
+  # calculate a distance matrix using the euclidean method (standard),
+  dist(method = "euclidean") %>%
+  # compute hierarchical clustering
+  hclust(method = "average")
+
+dend <- hc %>%
+  # turn that object into a dendrogram.
+  as.dendrogram()
+
+
+clustersA <- cutreeDynamic(hc, deepSplit = TRUE)
+n_branch <- length(clustersA %>% unique())
+
+data_clustersA<- data_cor %>% as.data.frame()
+data_clustersA$clusters <- clustersA
+
+```
+```{r engraftA}
+library(WGCNA)
+
+#### 1. Engraftment
+
+# Define numbers of genes and samples
+nGenesA = ncol(log2_normA_drop_sd0);
+nSamplesA = nrow(log2_normA_drop_sd0);
+# Recalculate MEs with color labels
+MEs0A = moduleEigengenes(log2_normA_drop_sd0, clustersA, impute = FALSE)$eigengenes
+MEsA = orderMEs(MEs0A)
+moduleTraitCor = cor(MEsA, 
+                     engraftment_vars, use = "p", method = "spearman");
+moduleTraitPvalue = corPvalueStudent(moduleTraitCor, nSamplesA)
+
+# Will display correlations and their p-values
+textMatrix =  paste(signif(moduleTraitCor, 2), "\n(",
+                    signif(moduleTraitPvalue, 1), ")", sep = "");
+dim(textMatrix) = dim(moduleTraitCor)
+# Display the correlation values within a heatmap plot
+colnames(engraftment_vars) <- c("eng_day_anc", "eng_day_plt")
+
+labeledHeatmap(Matrix = moduleTraitCor,
+               xLabels = names(engraftment_vars),
+               yLabels = names(MEsA),
+               ySymbols = names(MEsA),
+               colorLabels = FALSE,
+               colors = greenWhiteRed(50),
+               textMatrix = textMatrix,
+               setStdMargins = FALSE,
+               cex.text = 0.5,
+               zlim = c(-1,1),
+               main = paste("Module-trait relationships"))
+```
+Timepoint A
+
+
+
+```{r timepointB}
+
+set.seed(1234)
+
+# data has sd = 0 problems for the miRNAs thresholded to 22, eliminating these counts from the matrix. 
+test <- skimr::skim(log2_normB)
+
+# Filtering out miRNAs that are all the same number (threshold log2(22))
+filter_vec <- test %>% 
+  filter(numeric.sd != 0) %>% pull(skim_variable)
+
+rows_8 <- rownames(log2_normB)
+
+log2_normB_drop_sd0 <- log2_normB %>% 
+  select(all_of(filter_vec)) %>% 
+  as_tibble()
+
+# generate correlation matrix of data 
+data_cor <- cor(log2_normB_drop_sd0, use = 'pairwise.complete.obs')
+
+# if names were numeric
+# data_cor[ order(as.numeric(row.names(data_cor))), ]
+hc <- data_cor %>%
+  # calculate a distance matrix using the euclidean method (standard),
+  dist(method = "euclidean") %>%
+  # compute hierarchical clustering
+  hclust(method = "average")
+
+dend <- hc %>%
+  # turn that object into a dendrogram.
+  as.dendrogram()
+
+clustersB <- cutreeDynamic(hc, deepSplit = TRUE)
+n_branch <- length(clustersB %>% unique())
+data_clustersB<- data_cor %>% as.data.frame()
+data_clustersB$clusters <- clustersB
+
+```
+```{r engraftB}
+### 1. Engraftment Variables 
+engraftment_varsB <- engraftment_vars[rows_8,]
+
+# Define numbers of genes and samples
+nGenesB = ncol(log2_normB_drop_sd0);
+nSamplesB = nrow(log2_normB_drop_sd0);
+# Recalculate MEs with color labels
+MEs0B = moduleEigengenes(log2_normB_drop_sd0, clustersB, impute = FALSE)$eigengenes
+MEsB = orderMEs(MEs0B)
+moduleTraitCor = cor(MEsB, 
+                     engraftment_varsB, use = "p", method = "spearman");
+moduleTraitPvalue = corPvalueStudent(moduleTraitCor, nSamplesB)
+
+# Will display correlations and their p-values
+textMatrix =  paste(signif(moduleTraitCor, 2), "\n(",
+                    signif(moduleTraitPvalue, 1), ")", sep = "");
+dim(textMatrix) = dim(moduleTraitCor)
+# Display the correlation values within a heatmap plot
+colnames(engraftment_varsB) <- c("eng_day_anc", "eng_day_plt")
+
+labeledHeatmap(Matrix = moduleTraitCor,
+               xLabels = names(engraftment_varsB),
+               yLabels = names(MEsB),
+               ySymbols = names(MEsB),
+               colorLabels = FALSE,
+               colors = greenWhiteRed(50),
+               textMatrix = textMatrix,
+               setStdMargins = FALSE,
+               cex.text = 0.5,
+               zlim = c(-1,1),
+               main = paste("Module-trait relationships"))
+```
+Timepoint B
+
+####  Question 3: Correlation of Immune reconstitution and clinical endpoints
+
+ Are pre/post miRNA profiles associated with immune reconstitution (ALC, hemoglobin, platelets, neutrophils, monocytes) @ 6 months and 1yr?
+ Treatment?
+ 
+ Using pearson's correlation, the following results were obtained. 
+ Significant with 14 tests = 0.05/14 or < 0.00357
+ 
+```{r bloodcellsA}
+
+### 2. Blood Cells Variables ####
+# a_bVarsB <- a_bVars[rows_8,]
+
+
+moduleTraitCor = cor(MEsA, 
+                     a_bVars, use = "p");
+moduleTraitPvalue = corPvalueStudent(moduleTraitCor, nSamplesB)
+
+# Will display correlations and their p-values
+textMatrix =  paste(signif(moduleTraitCor, 2), "\n(",
+                    signif(moduleTraitPvalue, 1), ")", sep = "");
+dim(textMatrix) = dim(moduleTraitCor)
+
+labeledHeatmap(Matrix = moduleTraitCor,
+               xLabels = names(a_bVars),
+               yLabels = names(MEsA),
+               ySymbols = names(MEsA),
+               colorLabels = FALSE,
+               colors = greenWhiteRed(50),
+               textMatrix = textMatrix,
+               setStdMargins = FALSE,
+               cex.text = 0.5,
+               zlim = c(-1,1),
+               main = paste("Module-trait relationships"))
+
+```
+ Timepoint A
+ 
+
+ 
+```{r bloodcellsB}
+
+### 2. Blood Cells Variables ####
+a_bVarsB <- a_bVars[rows_8,]
+
+
+moduleTraitCor = cor(MEsB, 
+                     a_bVarsB, use = "p")
+moduleTraitPvalue = corPvalueStudent(moduleTraitCor, nSamplesB)
+
+# Will display correlations and their p-values
+textMatrix =  paste(signif(moduleTraitCor, 2), "\n(",
+                    signif(moduleTraitPvalue, 1), ")", sep = "");
+dim(textMatrix) = dim(moduleTraitCor)
+
+
+labeledHeatmap(Matrix = moduleTraitCor,
+               xLabels = names(a_bVarsB),
+               yLabels = names(MEsB),
+               ySymbols = names(MEsB),
+               colorLabels = FALSE,
+               colors = greenWhiteRed(50),
+               textMatrix = textMatrix,
+               setStdMargins = FALSE,
+               cex.text = 0.5,
+               zlim = c(-1,1),
+               main = paste("Module-trait relationships"))
+
+```
+ Timepoint B 
+ 
+```{r bloodcellsB_genes}
+
+bloodcellsB <- data_clustersB %>% 
+  filter(clustersB ==6 ) %>% 
+  rownames()
+
+
+bloodcellsB <- log2_normB %>% 
+  dplyr::select(all_of(bloodcellsB))
+
+bloodcellsB %>% 
+  datatable()
+
+```
+ This cluster is all NAs and is very few genes, this caused a random significant correlation
+ 
+ 
+
+ 
+ 
+####  Question 4: Correlation of Clincal Scoring Endpoints
+
+ Are miRNAs associated with frailty (3-5 = frail), cognition (MOCASocre 26+), fatigue (PROMISsCORE) and QoL (FACTBMTScore)
+ 
+ Using pearson's correlation, the following results were obtained. 
+ Significant with 8 tests = 0.05/8 or < 0.00625
+ 
+```{r clin_scoreA}
+### 3. Clinical Scoring  ####
+
+moduleTraitCor = cor(MEsA, 
+                     Clin_scoreVars, use = "p")
+moduleTraitPvalue = corPvalueStudent(moduleTraitCor, nSamplesA)
+
+# Will display correlations and their p-values
+textMatrix =  paste(signif(moduleTraitCor, 2), "\n(",
+                    signif(moduleTraitPvalue, 1), ")", sep = "");
+dim(textMatrix) = dim(moduleTraitCor)
+
+
+labeledHeatmap(Matrix = moduleTraitCor,
+               xLabels = names(Clin_scoreVars),
+               yLabels = names(MEsA),
+               ySymbols = names(MEsA),
+               colorLabels = FALSE,
+               colors = greenWhiteRed(50),
+               textMatrix = textMatrix,
+               setStdMargins = FALSE,
+               cex.text = 0.5,
+               zlim = c(-1,1),
+               main = paste("Module-trait relationships"))
+
+
+```
+Timepoint A
+
+```{r clin_scoreB}
+
+### 3. Clinical Scoring  ####
+Clin_scoreVarsB <- Clin_scoreVars[rows_8,]
+
+
+moduleTraitCor = cor(MEsB, 
+                     Clin_scoreVarsB, use = "p")
+moduleTraitPvalue = corPvalueStudent(moduleTraitCor, nSamplesB)
+
+# Will display correlations and their p-values
+textMatrix =  paste(signif(moduleTraitCor, 2), "\n(",
+                    signif(moduleTraitPvalue, 1), ")", sep = "");
+dim(textMatrix) = dim(moduleTraitCor)
+
+
+labeledHeatmap(Matrix = moduleTraitCor,
+               xLabels = names(Clin_scoreVarsB),
+               yLabels = names(MEsB),
+               ySymbols = names(MEsB),
+               colorLabels = FALSE,
+               colors = greenWhiteRed(50),
+               textMatrix = textMatrix,
+               setStdMargins = FALSE,
+               cex.text = 0.5,
+               zlim = c(-1,1),
+               main = paste("Module-trait relationships"))
+
+```
+Timepoint B has significant assocation with promis_score at timepoint A at gene cluster ME8
+
+ 
+ 
