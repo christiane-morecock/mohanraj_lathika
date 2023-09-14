@@ -14,15 +14,15 @@ sigThreshold22 <- threshold22[threshold22$pvalue <= 0.05,,drop=FALSE] %>% as_tib
 sigThreshold28 <- threshold28[threshold28$pvalue <= 0.05,,drop=FALSE] %>% as_tibble()
 
 
-sigThreshold18 %>% 
+sigThreshold18 <- sigThreshold18 %>% 
   filter(padj < 0.05)
 # 4 genes 
 
-sigThreshold22 %>% 
+sigThreshold22 <- sigThreshold22 %>% 
   filter(padj < 0.05)
 # 4 genes
 
-sigThreshold28 %>% 
+sigThreshold28 <- sigThreshold28 %>% 
   filter(padj < 0.05)
 # 5 genes
 
@@ -43,7 +43,7 @@ myCol <- brewer.pal(3, "Pastel2")
 venn.diagram(
   x = list(set1, set2, set3),
   category.names = c("Threshold: 18" , "Threshold: 22" , "Threshold: 28"),
-  filename = 'compareThresholdsVenn.png',
+  filename = 'compareThresholdsVenn_padj.png',
   output=TRUE,
   
   # Output features

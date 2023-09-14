@@ -188,7 +188,7 @@ point_graph_raw
 
 ```{r all_raw_density, , echo=FALSE, warning=FALSE, message=FALSE}
 # Density plot of thresholds and datapoints
-raw_dat_long %>% 
+density_threshold <- raw_dat_long %>% 
   mutate(group = str_to_title(group)) %>% 
   # filter(raw_counts < 150) %>%
   ggplot(aes( x = raw_counts,
@@ -203,6 +203,8 @@ raw_dat_long %>%
    scale_x_continuous(name = "Raw Counts", breaks = seq(0, 150, 10), limits = c(0,150))+
   theme_classic()+
   scale_colour_grey()
+
+density_threshold
 
 ```
 
@@ -229,7 +231,7 @@ PCA_before <- PCAdata %>%
   as_data_frame() %>% 
   ggplot(aes(x = as.numeric(PC1), y = as.numeric(PC2), label = name)) +
   theme(plot.title = element_text(lineheight = 0.8, face="bold")) +
-  ggtitle("PCA Analysis, coloring by condition") +
+  ggtitle("PCA Analysis, raw intensities") +
   geom_point(aes(color = condition ), size = 3) +
   geom_text_repel(colour = "black", size = 3) +
   geom_hline(yintercept = 0, colour = "lightgrey", size=.1) +
@@ -309,7 +311,7 @@ pca <-  prcomp(t(data.scaled))
 PCA_after<- ggplot(data = data.frame(pca$x, samples, samples = samples$condition, stringsAsFactors = F), 
        aes(x = as.numeric(PC1), y = as.numeric(PC2), label = name)) +
   theme(plot.title = element_text(lineheight = 0.8, face="bold")) +
-  ggtitle("PCA Analysis, coloring by conditon") +
+  ggtitle("PCA Analysis, after normalization") +
   geom_point(aes(color = condition), size = 3) +
   geom_text_repel(colour = "black", size = 3) +
   geom_hline(yintercept = 0, colour = "lightgrey", size=.1) +
@@ -422,7 +424,7 @@ hc <- data_cor %>%
 
 dend <- dend %>%
   # set("labels_colors", cutree(dend, k = 6)) %>%
-   set("branches_k_color", k = 6) %>%
+   # set("branches_k_color", k = 6) %>%
    set("branches_lwd", c(0.5)) %>%
    ladderize
 
@@ -551,7 +553,8 @@ zscores = as.matrix(zscores)
 
 
 # Set the color palette.
-col <- colorRampPalette(c("red", "black", "green")) (n=20)
+# Pick Colors (Gray scale)
+col <- colorRampPalette(c("white", "black")) (n=50)
 
 
 test <- zscores %>% colnames %>% str_detect("B")
@@ -565,7 +568,7 @@ heatmap_save <- heatmap.2(zscores,
                           density.info="none",
                           dendrogram="both",
                           trace="none",
-                          ColSideColors=ifelse(test == TRUE, "yellow", "purple"),
+                          ColSideColors=ifelse(test == TRUE, "black", "white"),
                           # labRow=FALSE,
                           margins=MARGINS,
                           lhei=LHEI
@@ -593,7 +596,7 @@ nSamples = nrow(log2_normA);
 # Spearman’s rank correlation coefficient, or Spearman’s correlation coefficient, as the name suggests, is a nonparametric approach to measuring correlation using rank values.
 moduleTraitCor = stats::cor(log2_normA, 
                             engraftment_vars, 
-                            method = "spearman")# spearman: rank correlation 
+                            method = "spearman") # spearman: rank correlation 
 
 ## remove all the NAs
 TraitCor_dropNA<- moduleTraitCor[rowSums(is.na(moduleTraitCor)) !=2,]
@@ -625,35 +628,36 @@ labeledHeatmap(Matrix = TraitCorFig,
                yLabels = rownames(TraitCorFig),
                ySymbols = rownames(TraitCorFig),
                colorLabels = FALSE,
-               colors = blueWhiteRed(50),
+               colors = col,
                textMatrix = textMatrix,
                cex.text = 0.5,
                zlim = c(-1,1),
                main = paste("Engraftment Relationships"))
+
 ```
 Timepoint A
 
 
-##### Correlated miRNAs by significance threshold
- Using spearman's correlation, the following results were obtained.  
- True = Significant (p<0.05)
-```{r engraftA_table}
-library(kableExtra)
+<!-- ##### Correlated miRNAs by significance threshold -->
+<!--  Using spearman's correlation, the following results were obtained.   -->
+<!--  True = Significant (p<0.05) -->
+<!-- ```{r engraftA_table} -->
+<!-- library(kableExtra) -->
 
-#### Useless function.. Just go with it. 
-## Logical, identifying significance at valuewritten in function.
-sig_fun <- function(x){
-  x <= (0.05)
-}
+<!-- #### Useless function.. Just go with it.  -->
+<!-- ## Logical, identifying significance at valuewritten in function. -->
+<!-- sig_fun <- function(x){ -->
+<!--   x <= (0.05) -->
+<!-- } -->
 
-# table of miRNAs that are significant
-TraitPvalueFig %>%
-  as.data.frame() %>% 
-  mutate_all(sig_fun) %>% 
-  filter(anc_engraftment_day ==TRUE | plt_engraftment_day == TRUE) %>% 
-  kbl()%>%
-  kable_paper("hover", full_width = F)
-```
+<!-- # table of miRNAs that are significant -->
+<!-- TraitPvalueFig %>% -->
+<!--   as.data.frame() %>%  -->
+<!--   mutate_all(sig_fun) %>%  -->
+<!--   filter(anc_engraftment_day ==TRUE | plt_engraftment_day == TRUE) %>%  -->
+<!--   kbl()%>% -->
+<!--   kable_paper("hover", full_width = F) -->
+<!-- ``` -->
 
 
 
@@ -665,6 +669,7 @@ TraitPvalueFig %>%
  
 
 ##### miRNAs from Timepoint A significantly correlated with Blood Cell Counts 6 months after Tx
+###### Platelets and Alc
  These are the top significantly correlated miRNAs. Significance threshold for this figure is p = .05 <br> 
  
 ```{r bloodcellsA_6mo, fig.height=10}
@@ -690,21 +695,96 @@ bloodcellcounts <- bloodcellcounts[!(row.names(bloodcellcounts) %in% secondTxPts
 
 # Timepoint D. 1 year after transplant
 y <- bloodcellcounts %>%
-  dplyr::select(ends_with("C")) %>% 
+  dplyr::select(starts_with("alc"), starts_with("platelet")) %>% 
+  dplyr::select(-ends_with("D")) %>% 
   drop_na() %>% 
   as.matrix()
 
-## Match rows to log values
+## Filter log values by rownames of clinical traits
 x <- log2_normA[(row.names(log2_normA) %in% row.names(y)),]
 x <- x %>% as.matrix()
 
+## test correlation between miRNA (log values) and clinical traits
 bloodCellsCor <- stats::cor(x, 
                             y, 
                             method = "spearman")# spearman: rank correlation 
 # bloodCellsP <- moduleTraitCor$p[(ncol(y)+1):ncol(x), 1:ncol(y)] # Doesn't work
 
 ## remove rows with ALL NAs
-TraitCor_dropNA<- bloodCellsCor[rowSums(is.na(bloodCellsCor)) !=5,]
+TraitCor_dropNA<- bloodCellsCor[rowSums(is.na(bloodCellsCor)) !=2,]
+# remove Controls
+TraitCor_dropCtrls <- TraitCor_dropNA[!grepl("POS", rownames(TraitCor_dropNA)),]
+TraitCor_dropCtrls <- TraitCor_dropCtrls[!grepl("NEG", rownames(TraitCor_dropCtrls)),]
+TraitCor_dropNA_reorder <- cluster_matrix(TraitCor_dropCtrls)
+
+# Calculate P-values based on sample size (package: WGCNA)
+bloodCellsP = corPvalueStudent(TraitCor_dropNA_reorder, nSamples)
+
+#### trim the insignificant genes to make the figure more readable 
+pvalue_threshold2 <- 0.05
+#0.05/(ncol(x) * ncol(y))
+
+notSig_fun2 <- function(x){
+  x >= pvalue_threshold2
+}
+
+
+# identify non significant genes according to threshold
+notSig <- bloodCellsP %>%
+  as.data.frame() %>% 
+  filter_if(is.numeric, notSig_fun2) %>% 
+  row.names()
+# remove genes from data sets
+TraitCorFig <- TraitCor_dropNA_reorder[!( rownames(TraitCor_dropNA_reorder) %in% notSig),]
+bloodCellsPFig <- bloodCellsP[!( rownames(bloodCellsP) %in% notSig),]
+
+# TextMatrix will display correlations and their p-values
+textMatrix =  paste(signif(TraitCorFig, 2), "\n(",
+                    signif(bloodCellsPFig, 4), ")", sep = "");
+dim(textMatrix) = dim(TraitCorFig)
+
+
+
+
+# Display the correlation values within a heatmap plot
+labeledHeatmap(Matrix = TraitCorFig,
+               xLabels = colnames(TraitCorFig),
+               yLabels = rownames(TraitCorFig),
+               ySymbols = rownames(TraitCorFig),
+               colorLabels = FALSE,
+               colors = col,
+               textMatrix = textMatrix,
+               cex.text = 0.5,
+               zlim = c(-1,1),
+               main = paste("Blood Cell Count Relationships"))
+
+
+```
+**Figure: Blood Cell Counts at 6mo check-up after Tx, correlated with miRNAs at Timepoint A. Number of observations = `r dim(y)[[1]]`** <br>
+<br>
+
+
+
+###### Other Cell types at 6 months. 
+```{r otherbloodcells6mo, fig.height=10}
+# Timepoint D. 1 year after transplant
+y <- bloodcellcounts %>%
+  dplyr::select(-starts_with("alc"), -starts_with("platelet"),-ends_with("D")) %>% 
+  drop_na() %>% 
+  as.matrix()
+
+## Filter log values by rownames of clinical traits
+x <- log2_normA[(row.names(log2_normA) %in% row.names(y)),]
+x <- x %>% as.matrix()
+
+## test correlation between miRNA (log values) and clinical traits
+bloodCellsCor <- stats::cor(x, 
+                            y, 
+                            method = "spearman")# spearman: rank correlation 
+# bloodCellsP <- moduleTraitCor$p[(ncol(y)+1):ncol(x), 1:ncol(y)] # Doesn't work
+
+## remove rows with ALL NAs
+TraitCor_dropNA<- bloodCellsCor[rowSums(is.na(bloodCellsCor)) !=3,]
 # remove Controls
 TraitCor_dropCtrls <- TraitCor_dropNA[!grepl("POS", rownames(TraitCor_dropNA)),]
 TraitCor_dropCtrls <- TraitCor_dropCtrls[!grepl("NEG", rownames(TraitCor_dropCtrls)),]
@@ -743,19 +823,17 @@ labeledHeatmap(Matrix = TraitCorFig,
                yLabels = rownames(TraitCorFig),
                ySymbols = rownames(TraitCorFig),
                colorLabels = FALSE,
-               colors = blueWhiteRed(50),
+               colors = col,
                textMatrix = textMatrix,
                cex.text = 0.5,
                zlim = c(-1,1),
                main = paste("Blood Cell Count Relationships"))
+
 ```
-**Figure: Blood Cell Counts at 6mo check-up after Tx, correlated with miRNAs at Timepoint A. Number of observations = `r dim(y)[[1]]`** <br>
-<br>
+**Figure: Blood Cell Counts at six month check-up after Tx, correlated with miRNAs at Timepoint A. Number of observations = `r dim(y)[[1]]`**
 
+###### Correlated miRNAs by significance threshold
 
-##### Correlated miRNAs by significance threshold
-This is a table version of what is written above, if you'd like to look at cell types one by one, toggle the arrow next to the column name. :)Using spearman's rank correlation, the following results were obtained. A cut off threshold of 0.05 for at least one cell type.  
-True = Significant (p<0.05)
 ```{r bloodCell_6mo_table}
 library(kableExtra)
 
@@ -777,15 +855,18 @@ bloodCellsPFig %>%
   DT::datatable()
 ```
 
+
 ##### miRNAs from Timepoint A significantly correlated with Blood Cell Counts 12 months after Tx
  These are the top significantly correlated miRNAs. Significance threshold for this figure is p = .05 <br> 
+ 
+###### Platelets and ALC
 ```{r bloodcellsA_12mo, fig.height=10}
 
 
 
 # Timepoint D. 1 year after transplant
 y <- bloodcellcounts %>%
-  dplyr::select(ends_with("D")) %>% 
+  dplyr::select(starts_with("alc"), starts_with("plat"), -ends_with("C"), ) %>% 
   drop_na() %>% 
   as.matrix()
 
@@ -799,7 +880,7 @@ bloodCellsCor <- stats::cor(x,
 # bloodCellsP <- moduleTraitCor$p[(ncol(y)+1):ncol(x), 1:ncol(y)] # Doesn't work
 
 ## remove rows with ALL NAs
-TraitCor_dropNA<- bloodCellsCor[rowSums(is.na(bloodCellsCor)) !=5,]
+TraitCor_dropNA<- bloodCellsCor[rowSums(is.na(bloodCellsCor)) !=2,]
 # remove Controls
 TraitCor_dropCtrls <- TraitCor_dropNA[!grepl("POS", rownames(TraitCor_dropNA)),]
 TraitCor_dropCtrls <- TraitCor_dropCtrls[!grepl("NEG", rownames(TraitCor_dropCtrls)),]
@@ -838,16 +919,84 @@ labeledHeatmap(Matrix = TraitCorFig,
                yLabels = rownames(TraitCorFig),
                ySymbols = rownames(TraitCorFig),
                colorLabels = FALSE,
-               colors = blueWhiteRed(50),
+               colors = col,
                textMatrix = textMatrix,
                cex.text = 0.5,
                zlim = c(-1,1),
                main = paste("Blood Cell Count Relationships"))
+
 ```
 **Figure: Blood Cell Counts at one year check-up after Tx, correlated with miRNAs at Timepoint A. Number of observations = `r dim(y)[[1]]`**
 
 
-##### Correlated miRNAs by significance threshold
+###### Other Cell Types 
+```{r bloodcellsA_12mo_other, fig.height=10}
+
+# Timepoint D. 1 year after transplant
+y <- bloodcellcounts %>%
+  dplyr::select(-starts_with("alc"), -starts_with("plat"), -ends_with("C"), ) %>% 
+  drop_na() %>% 
+  as.matrix()
+
+## Match rows to log values
+x <- log2_normA[(row.names(log2_normA) %in% row.names(y)),]
+x <- x %>% as.matrix()
+
+bloodCellsCor <- stats::cor(x, 
+                            y, 
+                            method = "spearman")# spearman: rank correlation 
+# bloodCellsP <- moduleTraitCor$p[(ncol(y)+1):ncol(x), 1:ncol(y)] # Doesn't work
+
+## remove rows with ALL NAs
+TraitCor_dropNA<- bloodCellsCor[rowSums(is.na(bloodCellsCor)) !=3,]
+# remove Controls
+TraitCor_dropCtrls <- TraitCor_dropNA[!grepl("POS", rownames(TraitCor_dropNA)),]
+TraitCor_dropCtrls <- TraitCor_dropCtrls[!grepl("NEG", rownames(TraitCor_dropCtrls)),]
+TraitCor_dropNA_reorder <- cluster_matrix(TraitCor_dropCtrls)
+
+# Calculate P-values based on sample size (package: WGCNA)
+bloodCellsP = corPvalueStudent(TraitCor_dropNA_reorder, nSamples)
+
+#### trim the insignificant genes to make the figure more readable 
+pvalue_threshold2 <- 0.05
+#0.05/(ncol(x) * ncol(y))
+
+notSig_fun2 <- function(x){
+  x >= pvalue_threshold2
+}
+
+
+# identify non significant genes according to threshold
+notSig <- bloodCellsP %>%
+  as.data.frame() %>% 
+  filter_if(is.numeric, notSig_fun2) %>% 
+  row.names()
+# remove genes from data sets
+TraitCorFig <- TraitCor_dropNA_reorder[!( rownames(TraitCor_dropNA_reorder) %in% notSig),]
+bloodCellsPFig <- bloodCellsP[!( rownames(bloodCellsP) %in% notSig),]
+
+# TextMatrix will display correlations and their p-values
+textMatrix =  paste(signif(TraitCorFig, 2), "\n(",
+                    signif(bloodCellsPFig, 4), ")", sep = "");
+dim(textMatrix) = dim(TraitCorFig)
+
+
+# Display the correlation values within a heatmap plot
+labeledHeatmap(Matrix = TraitCorFig,
+               xLabels = colnames(TraitCorFig),
+               yLabels = rownames(TraitCorFig),
+               ySymbols = rownames(TraitCorFig),
+               colorLabels = FALSE,
+               colors = col,
+               textMatrix = textMatrix,
+               cex.text = 0.5,
+               zlim = c(-1,1),
+               main = paste("Blood Cell Count Relationships"))
+
+```
+**Figure: Blood Cell Counts at one year check-up after Tx, correlated with miRNAs at Timepoint A. Number of observations = `r dim(y)[[1]]`**
+
+###### Correlated miRNAs by significance threshold
 This is a table version of what is written above, if you'd like to look at cell types one by one, toggle the arrow next to the column name. :)Using spearman's rank correlation, the following results were obtained. A cut off threshold of 0.05 for at least one cell type.  
 True = Significant (p<0.05)
 ```{r bloodCell_12mo_table}
@@ -878,15 +1027,15 @@ bloodCellsPFig %>%
  Using spearman's rank correlation on the numeric values, the following results were obtained.
  
 
-##### miRNAs from Timepoint A significantly correlated with Clinical Scores at Time point A
-```{r clinA, fig.height= 10}
+##### miRNAs from Timepoint A significantly correlated with MOCA
+```{r clinA_moca, fig.height= 10}
 ### 1. Clinical Score Variables 
 
 
 # Spearman’s rank correlation coefficient, or Spearman’s correlation coefficient, as the name suggests, is a nonparametric approach to measuring correlation using rank values.
 
 # Timepoint A. 1 year after transplant
-y <- Clin_scoreVars %>% dplyr::select(ends_with("A")) %>% 
+y <- Clin_scoreVars %>% dplyr::select(starts_with("total_moca")) %>% 
   drop_na() %>% 
   as.matrix()
 
@@ -899,7 +1048,7 @@ moduleTraitCor = stats::cor(x,
                             method = "spearman")# spearman: rank correlation 
 
 ## remove all the NAs
-TraitCor_dropNA<- moduleTraitCor[rowSums(is.na(moduleTraitCor)) !=4,]
+TraitCor_dropNA<- moduleTraitCor[rowSums(is.na(moduleTraitCor)) !=2,]
 TraitCor_dropCtrls <- TraitCor_dropNA[!grepl("POS", rownames(TraitCor_dropNA)),]
 TraitCor_dropCtrls <- TraitCor_dropCtrls[!grepl("NEG", rownames(TraitCor_dropCtrls)),]
 TraitCor_dropNA_reorder <- cluster_matrix(TraitCor_dropCtrls)
@@ -933,22 +1082,23 @@ dim(textMatrix) = dim(TraitCorFig)
 
 # Display the correlation values within a heatmap plot
 labeledHeatmap(Matrix = TraitCorFig,
-               xLabels = names(Clin_scoreVars %>% dplyr::select(ends_with("A"))),
+               xLabels = names(Clin_scoreVars %>% dplyr::select(starts_with("total_moca"))),
                yLabels = rownames(TraitCorFig),
                ySymbols = rownames(TraitCorFig),
                colorLabels = FALSE,
-               colors = blueWhiteRed(50),
+               colors = col,
                textMatrix = textMatrix,
                cex.text = 0.5,
                zlim = c(-1,1),
-               main = paste("Clinical Score Relationships"))
-```
-**Figure: Clinical Scores at timepoint A, correlated with miRNAs at Timepoint A. Number of observations = `r dim(y)[[1]]`**
+               main = paste("MOCA Score Relationships"))
 
-##### Correlated miRNAs by significance threshold
+```
+**Figure: Clinical Scores correlated with miRNAs at Timepoint A. Number of observations = `r dim(y)[[1]]`**
+
+###### Correlated miRNAs by significance threshold
 This is a table version of what is written above, if you'd like to look at scores one by one, toggle the arrow next to the column name. Using spearman's rank correlation, the following results were obtained. A cut off threshold of 0.05 for at least one cell type.  
 True = Significant (p<0.05)
-```{r clinScore_table}
+```{r clinScore_table_moca}
 library(kableExtra)
 
 ### Useless function.. Just go with it.
@@ -969,15 +1119,15 @@ TraitPvalueFig %>%
 ```
 
 
-##### miRNAs from Timepoint A significantly correlated with Clinical Scores at Time point B
-
-```{r clinB, fig.height= 10}
+##### miRNAs from Timepoint A significantly correlated with PROMIS
+```{r clinA_promis, fig.height= 10}
 ### 1. Clinical Score Variables 
 
 
 # Spearman’s rank correlation coefficient, or Spearman’s correlation coefficient, as the name suggests, is a nonparametric approach to measuring correlation using rank values.
-x <- log2_normA %>% as.matrix()
-y <- Clin_scoreVars %>% dplyr::select(ends_with("B")) %>% 
+
+# Timepoint A. 1 year after transplant
+y <- Clin_scoreVars %>% dplyr::select(starts_with("promis")) %>% 
   drop_na() %>% 
   as.matrix()
 
@@ -985,13 +1135,12 @@ y <- Clin_scoreVars %>% dplyr::select(ends_with("B")) %>%
 x <- log2_normA[(row.names(log2_normA) %in% row.names(y)),]
 x <- x %>% as.matrix()
 
-clinBCor = stats::cor(x,
-                      y,
-                      method = "spearman")# spearman: rank correlation 
-
+moduleTraitCor = stats::cor(x, 
+                            y, 
+                            method = "spearman")# spearman: rank correlation 
 
 ## remove all the NAs
-TraitCor_dropNA<- clinBCor[rowSums(is.na(clinBCor)) !=4,]
+TraitCor_dropNA<- moduleTraitCor[rowSums(is.na(moduleTraitCor)) !=2,]
 TraitCor_dropCtrls <- TraitCor_dropNA[!grepl("POS", rownames(TraitCor_dropNA)),]
 TraitCor_dropCtrls <- TraitCor_dropCtrls[!grepl("NEG", rownames(TraitCor_dropCtrls)),]
 TraitCor_dropNA_reorder <- cluster_matrix(TraitCor_dropCtrls)
@@ -1025,22 +1174,23 @@ dim(textMatrix) = dim(TraitCorFig)
 
 # Display the correlation values within a heatmap plot
 labeledHeatmap(Matrix = TraitCorFig,
-               xLabels = colnames(TraitCorFig),
+               xLabels = names(Clin_scoreVars %>% dplyr::select(starts_with("promis"))),
                yLabels = rownames(TraitCorFig),
                ySymbols = rownames(TraitCorFig),
                colorLabels = FALSE,
-               colors = blueWhiteRed(50),
+               colors = col,
                textMatrix = textMatrix,
                cex.text = 0.5,
                zlim = c(-1,1),
-               main = paste("Clinical Score Relationships"))
-```
-**Figure: Clinical Scores at timepoint B, correlated with miRNAs at Timepoint A. Number of observations = `r dim(y)[[1]]`**
+               main = paste("Promis Score Relationships"))
 
-##### Correlated miRNAs by significance threshold
-This is a table version of what is written above, if you'd like to look at scores one by one, toggle the arrow next to the column name. Using Spearman's rank correlation, the following results were obtained. A cut off threshold of 0.05 for at least one cell type.  
+```
+**Figure: Clinical Scores correlated with miRNAs at Timepoint A. Number of observations = `r dim(y)[[1]]`**
+
+###### Correlated miRNAs by significance threshold
+This is a table version of what is written above, if you'd like to look at scores one by one, toggle the arrow next to the column name. Using spearman's rank correlation, the following results were obtained. A cut off threshold of 0.05 for at least one cell type.  
 True = Significant (p<0.05)
-```{r clinScore_tableB}
+```{r clinScore_table_promis}
 library(kableExtra)
 
 ### Useless function.. Just go with it.
@@ -1058,4 +1208,241 @@ TraitPvalueFig %>%
   # kbl()%>%
   # kable_paper("hover", full_width = F) #%>%
   DT::datatable()
+```
+
+##### miRNAs from Timepoint A significantly correlated with frailty
+```{r clinA_frailty, fig.height= 10}
+### 1. Clinical Score Variables 
+
+
+# Spearman’s rank correlation coefficient, or Spearman’s correlation coefficient, as the name suggests, is a nonparametric approach to measuring correlation using rank values.
+
+# Timepoint A. 1 year after transplant
+y <- Clin_scoreVars %>% dplyr::select(starts_with("frailty")) %>% 
+  drop_na() %>% 
+  as.matrix()
+
+## Match rows to log values
+x <- log2_normA[(row.names(log2_normA) %in% row.names(y)),]
+x <- x %>% as.matrix()
+
+moduleTraitCor = stats::cor(x, 
+                            y, 
+                            method = "spearman")# spearman: rank correlation 
+
+## remove all the NAs
+TraitCor_dropNA<- moduleTraitCor[rowSums(is.na(moduleTraitCor)) !=2,]
+TraitCor_dropCtrls <- TraitCor_dropNA[!grepl("POS", rownames(TraitCor_dropNA)),]
+TraitCor_dropCtrls <- TraitCor_dropCtrls[!grepl("NEG", rownames(TraitCor_dropCtrls)),]
+TraitCor_dropNA_reorder <- cluster_matrix(TraitCor_dropCtrls)
+
+# Calculate P-values based on sample size (package: WGCNA)
+TraitPvalue = corPvalueStudent(TraitCor_dropNA_reorder, nSamples)
+
+#### trim the insignificant genes to make the figure more readable 
+pvalue_threshold <- 0.05
+
+#### Useless function.. Just go with it. 
+## Logical, identifying significance at value written in function.
+notSig_fun <- function(x){
+  x >= pvalue_threshold
+}
+
+# identify non significant genes according to threshold
+notSignificant <- TraitPvalue %>%
+  as.data.frame() %>% 
+  filter_if(is.numeric, notSig_fun) %>% 
+  row.names()
+# remove genes from data sets
+TraitCorFig <- TraitCor_dropNA_reorder[!( rownames(TraitCor_dropNA_reorder) %in% notSignificant),]
+TraitPvalueFig <- TraitPvalue[!( rownames(TraitPvalue) %in% notSignificant),]
+
+# TextMatrix will display correlations and their p-values
+textMatrix =  paste(signif(TraitCorFig, 2), "\n(",
+                    signif(TraitPvalueFig, 1), ")", sep = "");
+dim(textMatrix) = dim(TraitCorFig)
+
+
+# Display the correlation values within a heatmap plot
+labeledHeatmap(Matrix = TraitCorFig,
+               xLabels = names(Clin_scoreVars %>% dplyr::select(starts_with("frailty"))),
+               yLabels = rownames(TraitCorFig),
+               ySymbols = rownames(TraitCorFig),
+               colorLabels = FALSE,
+               colors = col,
+               textMatrix = textMatrix,
+               cex.text = 0.5,
+               zlim = c(-1,1),
+               main = paste("Frailty Score Relationships"))
+```
+**Figure: Clinical Scores correlated with miRNAs at Timepoint A. Number of observations = `r dim(y)[[1]]`**
+
+###### Correlated miRNAs by significance threshold
+This is a table version of what is written above, if you'd like to look at scores one by one, toggle the arrow next to the column name. Using spearman's rank correlation, the following results were obtained. A cut off threshold of 0.05 for at least one cell type.  
+True = Significant (p<0.05)
+```{r clinScore_table_frailty}
+library(kableExtra)
+
+### Useless function.. Just go with it.
+# Logical, identifying significance at valuewritten in function.
+sig_fun <- function(x){
+  x <= (0.05)
+}
+
+# table of miRNAs that are significant
+TraitPvalueFig %>%
+  as.data.frame() %>%
+  rownames_to_column("ID") %>% 
+  group_by(ID) %>% 
+  summarize_if(is.numeric, sig_fun) %>%
+  # kbl()%>%
+  # kable_paper("hover", full_width = F) #%>%
+  DT::datatable()
+```
+
+##### miRNAs from Timepoint A significantly correlated with FACTBMT
+```{r clinA_factbmt, fig.height= 10}
+### 1. Clinical Score Variables 
+
+
+# Spearman’s rank correlation coefficient, or Spearman’s correlation coefficient, as the name suggests, is a nonparametric approach to measuring correlation using rank values.
+
+# Timepoint A. 1 year after transplant
+y <- Clin_scoreVars %>% dplyr::select(starts_with("factbmt")) %>% 
+  drop_na() %>% 
+  as.matrix()
+
+## Match rows to log values
+x <- log2_normA[(row.names(log2_normA) %in% row.names(y)),]
+x <- x %>% as.matrix()
+
+moduleTraitCor = stats::cor(x, 
+                            y, 
+                            method = "spearman")# spearman: rank correlation 
+
+## remove all the NAs
+TraitCor_dropNA<- moduleTraitCor[rowSums(is.na(moduleTraitCor)) !=2,]
+TraitCor_dropCtrls <- TraitCor_dropNA[!grepl("POS", rownames(TraitCor_dropNA)),]
+TraitCor_dropCtrls <- TraitCor_dropCtrls[!grepl("NEG", rownames(TraitCor_dropCtrls)),]
+TraitCor_dropCtrls <- TraitCor_dropCtrls[!grepl("ACTB", rownames(TraitCor_dropCtrls)),]
+TraitCor_dropNA_reorder <- cluster_matrix(TraitCor_dropCtrls)
+
+# Calculate P-values based on sample size (package: WGCNA)
+TraitPvalue = corPvalueStudent(TraitCor_dropNA_reorder, nSamples)
+
+#### trim the insignificant genes to make the figure more readable 
+pvalue_threshold <- 0.05
+
+#### Useless function.. Just go with it. 
+## Logical, identifying significance at value written in function.
+notSig_fun <- function(x){
+  x >= pvalue_threshold
+}
+
+# identify non significant genes according to threshold
+notSignificant <- TraitPvalue %>%
+  as.data.frame() %>% 
+  filter_if(is.numeric, notSig_fun) %>% 
+  row.names()
+# remove genes from data sets
+TraitCorFig <- TraitCor_dropNA_reorder[!( rownames(TraitCor_dropNA_reorder) %in% notSignificant),]
+TraitPvalueFig <- TraitPvalue[!( rownames(TraitPvalue) %in% notSignificant),]
+
+# TextMatrix will display correlations and their p-values
+textMatrix =  paste(signif(TraitCorFig, 2), "\n(",
+                    signif(TraitPvalueFig, 1), ")", sep = "");
+dim(textMatrix) = dim(TraitCorFig)
+
+
+# Display the correlation values within a heatmap plot
+labeledHeatmap(Matrix = TraitCorFig,
+               xLabels = names(Clin_scoreVars %>% dplyr::select(starts_with("factbmt"))),
+               yLabels = rownames(TraitCorFig),
+               ySymbols = rownames(TraitCorFig),
+               colorLabels = FALSE,
+               colors = col,
+               textMatrix = textMatrix,
+               cex.text = 0.5,
+               zlim = c(-1,1),
+               main = paste("Clinical Score Relationships"))
+
+```
+**Figure: Clinical Scores correlated with miRNAs at Timepoint A. Number of observations = `r dim(y)[[1]]`**
+
+###### Correlated miRNAs by significance threshold
+This is a table version of what is written above, if you'd like to look at scores one by one, toggle the arrow next to the column name. Using spearman's rank correlation, the following results were obtained. A cut off threshold of 0.05 for at least one cell type.  
+True = Significant (p<0.05)
+```{r clinScore_table_factbmt}
+library(kableExtra)
+
+### Useless function.. Just go with it.
+# Logical, identifying significance at valuewritten in function.
+sig_fun <- function(x){
+  x <= (0.05)
+}
+
+# table of miRNAs that are significant
+TraitPvalueFig %>%
+  as.data.frame() %>%
+  rownames_to_column("ID") %>% 
+  group_by(ID) %>% 
+  summarize_if(is.numeric, sig_fun) %>%
+  # kbl()%>%
+  # kable_paper("hover", full_width = F) #%>%
+  DT::datatable()
+```
+
+```{r save_images}
+library(ggplotify)
+library(officer)
+library(rvg)
+library(patchwork)
+
+PCA_comp <- PCA_before | PCA_after 
+
+
+#### Powerpoint
+PCA_comp_ppt <- dml(ggobj= PCA_comp)
+point_graph_ppt <- dml(ggobj= point_graph_raw)
+density_threshold_ppt <- dml(ggobj= density_threshold)
+boxnorm_ppt <- dml(ggobj= boxnorm)
+
+
+
+# doc <- read_pptx()
+# 
+# # QC   P L O T S
+# doc <- add_slide(doc, 'Title and Content', 'Office Theme')
+# doc <- ph_with(doc,
+#                PCA_comp_ppt,
+#                # res = 500,
+#                location = ph_location(width = 9,
+#                                       height = 6,
+#                                               newlabel = ""))
+# doc <- add_slide(doc, 'Title and Content', 'Office Theme')
+# doc <- ph_with(doc,
+#                point_graph_ppt,
+#                # res = 500,
+#                location = ph_location(width = 6,
+#                                       height = 6,
+#                                       newlabel = ""))
+# doc <- add_slide(doc, 'Title and Content', 'Office Theme')
+# doc <- ph_with(doc,
+#                density_threshold_ppt,
+#                # res = 500,
+#                location = ph_location(width = 6,
+#                                       height = 6,
+#                                       newlabel = "")) 
+# doc <- add_slide(doc, 'Title and Content', 'Office Theme')
+# doc <- ph_with(doc,
+#                boxnorm_ppt,
+#                # res = 500,
+#                location = ph_location(width = 8,
+#                                       height = 6,
+#                                       newlabel = "")) 
+# 
+# 
+# out_dir <- "./threshold1_22/figures/"
+# print(doc, target = str_c(out_dir,"all_ggplots.pptx"))
+
 ```
